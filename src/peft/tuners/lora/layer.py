@@ -28,6 +28,67 @@ from peft.utils.other import transpose
 
 from .config import LoraConfig
 
+import traceback
+
+CODEBOOK_COUNT = 512
+N_EMBED = CODEBOOK_COUNT
+
+class Quantize(nn.Module):
+    def __init__(self, dim, n_embed, decay=0.99, eps=1e-5):
+        super().__init__()
+        # Initialization of the Quantize module with specified dimensions and embedding settings.
+
+        self.dim = dim  # Dimension of each embedding vector.
+        self.n_embed = n_embed  # Number of embedding vectors in the codebook.
+        self.decay = decay  # Decay factor for updating the moving averages.
+        self.eps = eps  # Small epsilon value to prevent division by zero.
+
+        embed = torch.randn(dim, n_embed)  # Initialize the embeddings randomly.
+        self.register_buffer("embed", embed)  # Register 'embed' as a buffer for the embeddings/codebook.
+        self.register_buffer("cluster_size", torch.zeros(n_embed))  # Initialize and register the cluster size buffer.
+        self.register_buffer("embed_avg", embed.clone())  # Initialize and register the embeddings' average buffer.
+
+    def forward(self, input: torch.Tensor):
+        flatten = input.reshape(-1, self.dim)  # Flatten the input to match the embedding vector dimensions.
+        # Calculate the squared Euclidean distance between each input vector and the embedding vectors:
+        dist = (
+            flatten.pow(2).sum(1, keepdim=True)  # Squared L2 norm of each input vector.
+            - 2 * flatten @ self.embed  # Double the product of input vectors and codebook vectors.
+            + self.embed.pow(2).sum(0, keepdim=True)  # Squared L2 norm of each codebook vector.
+        )
+        _, embed_ind = (-dist).max(1)  # Find the index of the nearest embedding vector for each input vector.
+        embed_onehot = F.one_hot(embed_ind, self.n_embed).type(flatten.dtype)  # Convert indices to one-hot encoded format.
+        embed_ind = embed_ind.view(*input.shape[:-1])  # Reshape indices to match the original input shape without the last dimension.
+        quantize = self.embed_code(embed_ind)  # Fetch the embedding vectors corresponding to the indices.
+
+        if self.training:
+            # Update codebook during training
+            embed_onehot_sum = embed_onehot.sum(0)  # Sum the one-hot vectors across the batch for each embedding.
+            embed_sum = flatten.transpose(0, 1) @ embed_onehot  # Weighted sum of input vectors for each embedding.
+            print(f'updating codebook lets go')
+            ## Unnecessary when training on one device
+            # dist_fn.all_reduce(embed_onehot_sum)  # Reduce across all devices.
+            # dist_fn.all_reduce(embed_sum)  # Reduce across all devices.
+
+            self.cluster_size.data.mul_(self.decay).add_(
+                embed_onehot_sum, alpha=1 - self.decay
+            )  # Update cluster sizes with exponential decay.
+            self.embed_avg.data.mul_(self.decay).add_(embed_sum, alpha=1 - self.decay)  # Update the embedding averages with exponential decay.
+            n = self.cluster_size.sum()  # Total number of elements in all clusters.
+            cluster_size = (
+                (self.cluster_size + self.eps) / (n + self.n_embed * self.eps) * n
+            )  # Normalize cluster sizes.
+            embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)  # Normalize embeddings.
+            self.embed.data.copy_(embed_normalized)  # Copy normalized embeddings back to the codebook.
+
+        diff = (quantize.detach() - input).pow(2).mean()  # Compute the quantization error as MSE.
+        quantize = input + (quantize - input).detach()  # Return quantized values with gradient flow detached.
+
+        return quantize, diff, embed_ind  # Return quantized output, quantization error, and indices.
+
+    def embed_code(self, embed_id):
+        return F.embedding(embed_id, self.embed.transpose(0, 1))  # Fetch embedding vectors based on given indices.
+
 
 class LoraLayer(BaseTunerLayer):
     # All names of layers that may contain (trainable) adapter weights
@@ -53,38 +114,47 @@ class LoraLayer(BaseTunerLayer):
         self.lora_magnitude_vector: Optional[torch.nn.ParameterDict] = None  # for DoRA
         self._caches: dict[str, Any] = {}
         self.kwargs = kwargs
+        self.decay = kwargs.get("decay", 0.99)   # Decay factor for updating the moving averages.
+        self.n_level = kwargs.get("n_level", 3)  # Number of hierarchical quantization levels
 
         base_layer = self.get_base_layer()
         if isinstance(base_layer, nn.Linear):
             in_features, out_features = base_layer.in_features, base_layer.out_features
-        elif isinstance(base_layer, nn.Conv2d):
-            in_features, out_features = base_layer.in_channels, base_layer.out_channels
-        elif isinstance(base_layer, nn.Embedding):
-            in_features, out_features = base_layer.num_embeddings, base_layer.embedding_dim
-        elif isinstance(base_layer, Conv1D):
-            in_features, out_features = (
-                base_layer.weight.ds_shape if hasattr(base_layer.weight, "ds_shape") else base_layer.weight.shape
-            )
-        elif hasattr(base_layer, "infeatures") and hasattr(base_layer, "outfeatures"):
-            # QuantLinear
-            in_features, out_features = base_layer.infeatures, base_layer.outfeatures
-        elif hasattr(base_layer, "input_size") and hasattr(base_layer, "output_size"):
-            # Megatron ColumnParallelLinear,RowParallelLinear
-            in_features, out_features = base_layer.input_size, base_layer.output_size
-        elif hasattr(base_layer, "codebooks") and base_layer.__class__.__name__ == "QuantizedLinear":
-            # AQLM QuantLinear
-            in_features, out_features = base_layer.in_features, base_layer.out_features
-        elif hasattr(base_layer, "w_bit") and base_layer.__class__.__name__ == "WQLinear_GEMM":
-            # Awq layers
-            in_features, out_features = base_layer.in_features, base_layer.out_features
-        elif base_layer.__class__.__name__ == "EetqLinear":
-            # Eetq layers
-            in_features, out_features = base_layer.in_features, base_layer.out_features
-        elif hasattr(base_layer, "W_q") and base_layer.__class__.__name__ == "HQQLinear":
-            # HQQ layers
-            in_features, out_features = base_layer.in_features, base_layer.out_features
+            self.hr_vqlora = nn.ModuleList()  # Lists to hold quantization and normalization layers for each level
+            self.bns = nn.ModuleList()
+            for i in range(self.n_level):     # Initialize quantization layers, and batch norm layers
+                self.hr_vqlora.append(Quantize(in_features, N_EMBED, self.decay))
+                self.bns.append(nn.BatchNorm1d(in_features))
         else:
-            raise ValueError(f"Unsupported layer type {type(base_layer)}")
+            raise ValueError(f"HR-VQLoRA only supports nn.Linear layers, found a {type(base_layer)}")
+        # elif isinstance(base_layer, nn.Conv2d):
+        #     in_features, out_features = base_layer.in_channels, base_layer.out_channels
+        # elif isinstance(base_layer, nn.Embedding):
+        #     in_features, out_features = base_layer.num_embeddings, base_layer.embedding_dim
+        # elif isinstance(base_layer, Conv1D):
+        #     in_features, out_features = (
+        #         base_layer.weight.ds_shape if hasattr(base_layer.weight, "ds_shape") else base_layer.weight.shape
+        #     )
+        # elif hasattr(base_layer, "infeatures") and hasattr(base_layer, "outfeatures"):
+        #     # QuantLinear
+        #     in_features, out_features = base_layer.infeatures, base_layer.outfeatures
+        # elif hasattr(base_layer, "input_size") and hasattr(base_layer, "output_size"):
+        #     # Megatron ColumnParallelLinear,RowParallelLinear
+        #     in_features, out_features = base_layer.input_size, base_layer.output_size
+        # elif hasattr(base_layer, "codebooks") and base_layer.__class__.__name__ == "QuantizedLinear":
+        #     # AQLM QuantLinear
+        #     in_features, out_features = base_layer.in_features, base_layer.out_features
+        # elif hasattr(base_layer, "w_bit") and base_layer.__class__.__name__ == "WQLinear_GEMM":
+        #     # Awq layers
+        #     in_features, out_features = base_layer.in_features, base_layer.out_features
+        # elif base_layer.__class__.__name__ == "EetqLinear":
+        #     # Eetq layers
+        #     in_features, out_features = base_layer.in_features, base_layer.out_features
+        # elif hasattr(base_layer, "W_q") and base_layer.__class__.__name__ == "HQQLinear":
+        #     # HQQ layers
+        #     in_features, out_features = base_layer.in_features, base_layer.out_features
+        # else:
+        #     raise ValueError(f"Unsupported layer type {type(base_layer)}")
 
         self.in_features = in_features
         self.out_features = out_features
