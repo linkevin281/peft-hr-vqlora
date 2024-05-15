@@ -475,7 +475,7 @@ if is_bnb_4bit_available():
 
                     if not self.use_dora[active_adapter]:
                         lora_output = (lora_B(lora_A(dropout(x))) * scaling)
-                        quant, _, _, _ = self.get_hierarchical_vector(lora_output)   
+                        quant, diffs, _, _ = self.get_hierarchical_vector(lora_output)   
                         # print(f'Shapes: Quant: {quant.shape}, Lora: {lora_output.shape}')
                         output = lora_output + quant
                     else:
@@ -484,8 +484,8 @@ if is_bnb_4bit_available():
                         output = output.to(expected_dtype)
 
                     result = result + output
-            # print("### Returned one result ###")
-            return result
+            print("\n### Returned one result ###")
+            return {"logits": result, "loss": diffs}
     
         def get_hierarchical_vector(self, w: torch.Tensor):
             # Initialize variables for accumulating quantization details
