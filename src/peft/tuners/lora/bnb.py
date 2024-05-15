@@ -475,7 +475,7 @@ if is_bnb_4bit_available():
                     if not self.use_dora[active_adapter]:
                         lora_output = (lora_B(lora_A(dropout(x))) * scaling)
                         quant, _, _, _ = self.get_hierarchical_vector(lora_output)   
-                        print(f'Shapes: Quant: {quant.shape}, Lora: {lora_output.shape}')
+                        # print(f'Shapes: Quant: {quant.shape}, Lora: {lora_output.shape}')
                         output = lora_output + quant
                     else:
                         output = self._apply_dora(x, lora_A, lora_B, scaling, active_adapter)
@@ -483,7 +483,7 @@ if is_bnb_4bit_available():
                         output = output.to(expected_dtype)
 
                     result = result + output
-            print("\n### Returned one result ###")
+            print("\n### Returned one result ###\n")
             return result
     
         def get_hierarchical_vector(self, w: torch.Tensor):
@@ -496,11 +496,12 @@ if is_bnb_4bit_available():
             
             # Process bottleneck through each quantization level
             for i, quantize in enumerate(self.hr_vqlora):
-                print(f'Weight input shape: {bottleneck.shape}')
+                # print(f'Weight input shape: {bottleneck.shape}')
+                # print(f' quantize dim: {quantize.dim} emb: {quantize.n_embed}')
                 # quant, diff, id = quantize(bottleneck.permute(0, 2, 1))
                 quant, diff, id = quantize(bottleneck)
                 # quant = quant.permute(0, 2, 1)
-                print(f'POST QUANTIZED. Quant: {quant.shape}, Diff: {diff.shape}, ID: {id.shape}')
+                # print(f'POST QUANTIZED. Quant: {quant.shape}, Diff: {diff.shape}, ID: {id.shape}')
                 diff = diff.unsqueeze(0)
 
                 # Accumulate quantization outputs and diffs
@@ -516,12 +517,12 @@ if is_bnb_4bit_available():
                     ids = torch.cat((ids, id.unsqueeze(1)), dim=1)
                 # Subtract quantized output from bottleneck to simulate residual learning
                 bottleneck -= quant
-                print(f"shape pre relu: {bottleneck.shape}")
+                # print(f"shape pre relu: {bottleneck.shape}")
                 bottleneck = bottleneck.permute(0, 2, 1)  # Revert back to [N, C, L]
                 bottleneck = F.relu(self.bns[i](bottleneck))
                 bottleneck = bottleneck.permute(0, 2, 1)  # Revert back to [N, C, L]
 
-                print(f"shape post relu: {bottleneck.shape}")
+                # print(f"shape post relu: {bottleneck.shape}")
             return quant_sum, diffs, quants, ids
 
         def __repr__(self) -> str:

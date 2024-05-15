@@ -65,7 +65,7 @@ class Quantize(nn.Module):
             # Update codebook during training
             embed_onehot_sum = embed_onehot.sum(0)  # Sum the one-hot vectors across the batch for each embedding.
             embed_sum = flatten.transpose(0, 1) @ embed_onehot  # Weighted sum of input vectors for each embedding.
-            print(f'updating codebook lets go')
+            # print(f'updating codebook lets go')
             ## Unnecessary when training on one device
             # dist_fn.all_reduce(embed_onehot_sum)  # Reduce across all devices.
             # dist_fn.all_reduce(embed_sum)  # Reduce across all devices.
@@ -116,15 +116,15 @@ class LoraLayer(BaseTunerLayer):
         self.kwargs = kwargs
         self.decay = kwargs.get("decay", 0.99)   # Decay factor for updating the moving averages.
         self.n_level = kwargs.get("n_level", 3)  # Number of hierarchical quantization levels
-
+    
         base_layer = self.get_base_layer()
         if isinstance(base_layer, nn.Linear):
             in_features, out_features = base_layer.in_features, base_layer.out_features
             self.hr_vqlora = nn.ModuleList()  # Lists to hold quantization and normalization layers for each level
             self.bns = nn.ModuleList()
             for i in range(self.n_level):     # Initialize quantization layers, and batch norm layers
-                self.hr_vqlora.append(Quantize(in_features, N_EMBED, self.decay))
-                self.bns.append(nn.BatchNorm1d(in_features))
+                self.hr_vqlora.append(Quantize(out_features, N_EMBED, self.decay))
+                self.bns.append(nn.BatchNorm1d(out_features))
         else:
             raise ValueError(f"HR-VQLoRA only supports nn.Linear layers, found a {type(base_layer)}")
         # elif isinstance(base_layer, nn.Conv2d):
