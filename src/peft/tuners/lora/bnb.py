@@ -27,6 +27,7 @@ from peft.utils.other import transpose
 
 from .layer import LoraLayer
 
+torch.autograd.set_detect_anomaly(True)
 
 if is_bnb_available():
 
@@ -483,7 +484,7 @@ if is_bnb_4bit_available():
                         output = output.to(expected_dtype)
 
                     result = result + output
-            print("\n### Returned one result ###\n")
+            # print("### Returned one result ###")
             return result
     
         def get_hierarchical_vector(self, w: torch.Tensor):
@@ -516,7 +517,7 @@ if is_bnb_4bit_available():
                     quants = torch.cat((quants, quant.unsqueeze(1)), dim=1)
                     ids = torch.cat((ids, id.unsqueeze(1)), dim=1)
                 # Subtract quantized output from bottleneck to simulate residual learning
-                bottleneck -= quant
+                bottleneck = bottleneck - quant
                 # print(f"shape pre relu: {bottleneck.shape}")
                 bottleneck = bottleneck.permute(0, 2, 1)  # Revert back to [N, C, L]
                 bottleneck = F.relu(self.bns[i](bottleneck))
