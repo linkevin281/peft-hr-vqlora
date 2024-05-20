@@ -301,11 +301,14 @@ if is_bnb_4bit_available():
                 use_rslora=use_rslora,
                 use_dora=use_dora,
             )
-            
+            self.adapter_name = adapter_name
             self.latent_loss: torch.Tensor = None
 
         def reset_latent_loss(self):
             self.latent_loss = None
+        
+        def get_latent_loss(self):
+            return self.latent_loss
 
         def merge(self, safe_merge: bool = False, adapter_names: Optional[list[str]] = None) -> None:
             """
@@ -491,15 +494,20 @@ if is_bnb_4bit_available():
                     result = result + output
                     
             # print("\n### Returned one result ###")
+            print(f'diffs: {diffs}')
+            print(f'latent_loss: {self.latent_loss}')
 
             if (type(self.latent_loss) != torch.Tensor):
                 self.latent_loss = diffs
                 # self.latent_loss = diffs
                 # torch.Tensor.size
             else:
-              self.latent_loss = self.latent_loss + diffs
+                self.latent_loss = self.latent_loss + diffs
+
+            print(f'latent_loss: {self.latent_loss}')
+
             
-            self.latent_loss = self.latent_loss + diffs
+            # self.latent_loss = self.latent_loss + diffs
 
             return result
 
