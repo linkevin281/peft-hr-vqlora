@@ -301,6 +301,11 @@ if is_bnb_4bit_available():
                 use_rslora=use_rslora,
                 use_dora=use_dora,
             )
+            
+            self.latent_loss: torch.Tensor = None
+
+        def reset_latent_loss(self):
+            self.latent_loss = None
 
         def merge(self, safe_merge: bool = False, adapter_names: Optional[list[str]] = None) -> None:
             """
@@ -484,8 +489,21 @@ if is_bnb_4bit_available():
                         output = output.to(expected_dtype)
 
                     result = result + output
-            print("\n### Returned one result ###")
-            return {"logits": result, "loss": diffs}
+                    
+            # print("\n### Returned one result ###")
+
+            if (type(self.latent_loss) != torch.Tensor):
+                self.latent_loss = diffs
+                # self.latent_loss = diffs
+                # torch.Tensor.size
+            else:
+              self.latent_loss = self.latent_loss + diffs
+            
+            self.latent_loss = self.latent_loss + diffs
+
+            return result
+
+            # return {"logits": result, "loss": diffs}
     
         def get_hierarchical_vector(self, w: torch.Tensor):
             # Initialize variables for accumulating quantization details
@@ -493,7 +511,10 @@ if is_bnb_4bit_available():
             quants = None
             diffs = None
             quant_sum = None
-            bottleneck = w
+            bottleneck = w.clone()
+            
+            if (bottleneck.dim() < 3):
+              bottleneck = bottleneck.unsqueeze(0)
             
             # Process bottleneck through each quantization level
             for i, quantize in enumerate(self.hr_vqlora):
