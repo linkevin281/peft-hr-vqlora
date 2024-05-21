@@ -301,6 +301,7 @@ if is_bnb_4bit_available():
                 use_rslora=use_rslora,
                 use_dora=use_dora,
             )
+            self.hr_vqlora_loss = 0
 
         def merge(self, safe_merge: bool = False, adapter_names: Optional[list[str]] = None) -> None:
             """
@@ -441,7 +442,10 @@ if is_bnb_4bit_available():
         def forward(self, x: torch.Tensor, *args, **kwargs) -> torch.Tensor:
             self._check_forward_args(x, *args, **kwargs)
             adapter_names = kwargs.pop("adapter_names", None)
-
+            
+            if (len(x.shape) != 3):
+                x = x.unsqueeze(0)
+                
             if self.disable_adapters:
                 if self.merged:
                     self.unmerge()
@@ -475,7 +479,8 @@ if is_bnb_4bit_available():
 
                     if not self.use_dora[active_adapter]:
                         lora_output = (lora_B(lora_A(dropout(x))) * scaling)
-                        quant, diffs, _, _ = self.get_hierarchical_vector(lora_output)   
+                        quant, diffs, _, _ = self.get_hierarchical_vector(lora_output)  
+                        self.hr_vqlora_loss = diffs 
                         # print(f'Shapes: Quant: {quant.shape}, Lora: {lora_output.shape}')
                         output = lora_output + quant
                     else:
@@ -484,8 +489,8 @@ if is_bnb_4bit_available():
                         output = output.to(expected_dtype)
 
                     result = result + output
-            print("\n### Returned one result ###")
-            return {"logits": result, "loss": diffs}
+
+            return result
     
         def get_hierarchical_vector(self, w: torch.Tensor):
             # Initialize variables for accumulating quantization details
