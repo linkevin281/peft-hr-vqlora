@@ -494,8 +494,8 @@ if is_bnb_4bit_available():
                     result = result + output
                     
             # print("\n### Returned one result ###")
-            print(f'diffs: {diffs}')
-            print(f'latent_loss: {self.latent_loss}')
+            # print(f'diffs: {diffs}')
+            # print(f'latent_loss: { self.latent_loss}')
 
             if (type(self.latent_loss) != torch.Tensor):
                 self.latent_loss = diffs
@@ -504,7 +504,8 @@ if is_bnb_4bit_available():
             else:
                 self.latent_loss = self.latent_loss + diffs
 
-            print(f'latent_loss: {self.latent_loss}')
+            # print(f'latent_loss: {self.latent_loss}')
+            # print(f'Object ID: {id(self)}')
 
             
             # self.latent_loss = self.latent_loss + diffs
