@@ -18,7 +18,10 @@ from typing import Any, Optional
 
 import bitsandbytes as bnb
 import torch
+from torch import nn
 from torch.nn import functional as F
+import torch.nn.utils as utils
+
 
 from peft.import_utils import is_bnb_4bit_available, is_bnb_available
 from peft.tuners.tuners_utils import BaseTunerLayer, check_adapters_to_merge
@@ -467,8 +470,32 @@ if is_bnb_4bit_available():
                     if active_adapter not in self.lora_A.keys():
                         continue
                     lora_A = self.lora_A[active_adapter]
-                    lora_B = self.lora_B[active_adapter]             
+                    lora_B = self.lora_B[active_adapter]
 
+                    # defensive clone
+                    lora_A_tensor = lora_A.weight.clone()
+                    # lora_B_tensor = lora_B.weight.clone()
+                    
+                    flat_lora_A = lora_A_tensor.flatten()
+                    # flat_lora_B = lora_B_tensor.flatten()
+                    
+                    ## perform codebook
+                    quant_A, diffs_A, _, _ = self.get_hierarchical_vector(flat_lora_A, self.hr_vqlora_A)
+                    # quant_B, diffs_B, _, _ = self.get_hierarchical_vector(flat_lora_B, self.hr_vqlora_B)
+                    
+                    # defensive clone
+                    quant_A = quant_A.clone()
+                    # quant_B = quant_B.clone()
+                    
+                    ## unflatten
+                    quant_A = quant_A.view_as(lora_A_tensor)
+                    # quant_B = quant_B.view_as(lora_B_tensor)
+                    
+                    ## perform in place update
+                    with torch.no_grad():
+                        lora_A.weight = nn.Parameter(lora_A.weight + quant_A)
+                        # lora_B.weight = nn.Parameter(lora_B.weight + quant_B)
+                                            
                     dropout = self.lora_dropout[active_adapter]
                     scaling = self.scaling[active_adapter]
 
@@ -479,29 +506,30 @@ if is_bnb_4bit_available():
 
                     if not self.use_dora[active_adapter]:
                         lora_output = (lora_B(lora_A(dropout(x))) * scaling)
-                        quant, diffs, _, _ = self.get_hierarchical_vector(lora_output)  
-                        self.hr_vqlora_loss = diffs 
-                        # print(f'Shapes: Quant: {quant.shape}, Lora: {lora_output.shape}')
-                        output = lora_output + quant
+                        lora_output = lora_output.clone()
+                        ## Remove in place update
+                        with torch.no_grad():
+                            lora_A.weight = nn.Parameter(lora_A.weight - quant_A)
+                            # lora_B.weight = nn.Parameter(lora_B.weight - quant_B)
                     else:
                         output = self._apply_dora(x, lora_A, lora_B, scaling, active_adapter)
                     if requires_conversion:
                         output = output.to(expected_dtype)
 
-                    result = result + output
+                    result = result + lora_output
 
             return result
     
-        def get_hierarchical_vector(self, w: torch.Tensor):
+        def get_hierarchical_vector(self, vector: torch.Tensor, codebook: torch.nn.ModuleList) -> torch.Tensor:
             # Initialize variables for accumulating quantization details
             ids = None
             quants = None
             diffs = None
             quant_sum = None
-            bottleneck = w
+            bottleneck = vector
             
             # Process bottleneck through each quantization level
-            for i, quantize in enumerate(self.hr_vqlora):
+            for i, quantize in enumerate(codebook):
                 # print(f'Weight input shape: {bottleneck.shape}')
                 # print(f' quantize dim: {quantize.dim} emb: {quantize.n_embed}')
                 # quant, diff, id = quantize(bottleneck.permute(0, 2, 1))
@@ -524,9 +552,9 @@ if is_bnb_4bit_available():
                 # Subtract quantized output from bottleneck to simulate residual learning
                 bottleneck = bottleneck - quant
                 # print(f"shape pre relu: {bottleneck.shape}")
-                bottleneck = bottleneck.permute(0, 2, 1)  # Revert back to [N, C, L]
-                bottleneck = F.relu(self.bns[i](bottleneck))
-                bottleneck = bottleneck.permute(0, 2, 1)  # Revert back to [N, C, L]
+                # bottleneck = bottleneck.permute(0, 2, 1)  # Revert back to [N, C, L]
+                # bottleneck = F.relu(self.bns[i](bottleneck))
+                # bottleneck = bottleneck.permute(0, 2, 1)  # Revert back to [N, C, L]
 
                 # print(f"shape post relu: {bottleneck.shape}")
             return quant_sum, diffs, quants, ids
@@ -556,3 +584,4 @@ if is_bnb_4bit_available():
             new_module = Linear4bit(target, adapter_name, **fourbit_kwargs)
 
         return new_module
+    
