@@ -21,6 +21,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 import torch.nn.utils as utils
+import wandb
 
 
 from peft.import_utils import is_bnb_4bit_available, is_bnb_available
@@ -291,7 +292,7 @@ if is_bnb_4bit_available():
             **kwargs,
         ) -> None:
             super().__init__()
-            LoraLayer.__init__(self, base_layer)
+            LoraLayer.__init__(self, base_layer, **kwargs)
             self.fan_in_fan_out = False
 
             self._active_adapter = adapter_name
@@ -483,10 +484,13 @@ if is_bnb_4bit_available():
                     quant_A, diffs_A, _, _ = self.get_hierarchical_vector(flat_lora_A, self.hr_vqlora_A)
                     # quant_B, diffs_B, _, _ = self.get_hierarchical_vector(flat_lora_B, self.hr_vqlora_B)
                     
+                    # Update loss
+                    self.hr_vqlora_loss = diffs_A
+                    
                     # defensive clone
                     quant_A = quant_A.clone()
                     # quant_B = quant_B.clone()
-                    
+                                        
                     ## unflatten
                     quant_A = quant_A.view_as(lora_A_tensor)
                     # quant_B = quant_B.view_as(lora_B_tensor)
@@ -530,12 +534,7 @@ if is_bnb_4bit_available():
             
             # Process bottleneck through each quantization level
             for i, quantize in enumerate(codebook):
-                # print(f'Weight input shape: {bottleneck.shape}')
-                # print(f' quantize dim: {quantize.dim} emb: {quantize.n_embed}')
-                # quant, diff, id = quantize(bottleneck.permute(0, 2, 1))
                 quant, diff, id = quantize(bottleneck)
-                # quant = quant.permute(0, 2, 1)
-                # print(f'POST QUANTIZED. Quant: {quant.shape}, Diff: {diff.shape}, ID: {id.shape}')
                 diff = diff.unsqueeze(0)
 
                 # Accumulate quantization outputs and diffs
@@ -549,14 +548,10 @@ if is_bnb_4bit_available():
                     quant_sum += quant
                     quants = torch.cat((quants, quant.unsqueeze(1)), dim=1)
                     ids = torch.cat((ids, id.unsqueeze(1)), dim=1)
+                    
                 # Subtract quantized output from bottleneck to simulate residual learning
                 bottleneck = bottleneck - quant
-                # print(f"shape pre relu: {bottleneck.shape}")
-                # bottleneck = bottleneck.permute(0, 2, 1)  # Revert back to [N, C, L]
-                # bottleneck = F.relu(self.bns[i](bottleneck))
-                # bottleneck = bottleneck.permute(0, 2, 1)  # Revert back to [N, C, L]
-
-                # print(f"shape post relu: {bottleneck.shape}")
+                
             return quant_sum, diffs, quants, ids
 
         def __repr__(self) -> str:

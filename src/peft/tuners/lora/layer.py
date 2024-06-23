@@ -98,6 +98,7 @@ class LoraLayer(BaseTunerLayer):
 
     def __init__(self, base_layer: nn.Module, **kwargs) -> None:
         self.base_layer = base_layer
+        self.rank = kwargs.get("r", 4)
         self.r = {}
         self.lora_alpha = {}
         self.scaling = {}
@@ -123,8 +124,8 @@ class LoraLayer(BaseTunerLayer):
             self.hr_vqlora_A = nn.ModuleList()
             self.hr_vqlora_B = nn.ModuleList()
             for i in range(self.n_level):     # Initialize quantization layers, and batch norm layers
-                self.hr_vqlora_A.append(Quantize(4*in_features, N_EMBED, self.decay))
-                self.hr_vqlora_B.append(Quantize(out_features*4, N_EMBED, self.decay))
+                self.hr_vqlora_A.append(Quantize(self.rank*in_features, N_EMBED, self.decay))
+                self.hr_vqlora_B.append(Quantize(out_features*self.rank, N_EMBED, self.decay))
         else:
             raise ValueError(f"HR-VQLoRA only supports nn.Linear layers, found a {type(base_layer)}")
         # elif isinstance(base_layer, nn.Conv2d):
