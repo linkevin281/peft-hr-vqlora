@@ -30,9 +30,6 @@ from .config import LoraConfig
 
 import traceback
 
-CODEBOOK_COUNT = 512
-N_EMBED = CODEBOOK_COUNT
-
 class Quantize(nn.Module):
     def __init__(self, dim, n_embed, decay=0.99, eps=1e-5):
         super().__init__()
@@ -117,7 +114,7 @@ class LoraLayer(BaseTunerLayer):
         self._caches: dict[str, Any] = {}
         self.kwargs = kwargs
         self.decay = kwargs.get("decay", 0.99)   # Decay factor for updating the moving averages.
-        self.n_level = kwargs.get("n_level", 3)  # Number of hierarchical quantization levels
+        self.codebook_layers = kwargs.get("codebook_layers", 3)  # Number of hierarchical quantization levels
     
         base_layer = self.get_base_layer()
         if isinstance(base_layer, nn.Linear):
