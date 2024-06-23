@@ -497,7 +497,7 @@ if is_bnb_4bit_available():
                     
                     ## perform in place update
                     with torch.no_grad():
-                        lora_A.weight = nn.Parameter(lora_A.weight + quant_A)
+                        lora_A.weight = nn.Parameter(quant_A)
                         # lora_B.weight = nn.Parameter(lora_B.weight + quant_B)
                                             
                     dropout = self.lora_dropout[active_adapter]
