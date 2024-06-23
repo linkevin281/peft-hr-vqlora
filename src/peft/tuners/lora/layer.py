@@ -30,9 +30,6 @@ from .config import LoraConfig
 
 import traceback
 
-CODEBOOK_COUNT = 16
-N_EMBED = CODEBOOK_COUNT
-
 class Quantize(nn.Module):
     def __init__(self, dim, n_embed, decay=0.99, eps=1e-5):
         super().__init__()
@@ -58,7 +55,7 @@ class Quantize(nn.Module):
         )
         _, embed_ind = (-dist).max(1)  # Find the index of the nearest embedding vector for each input vector.
         embed_onehot = F.one_hot(embed_ind, self.n_embed).type(flatten.dtype)  # Convert indices to one-hot encoded format.
-        # embed_ind = embed_ind.view(*input.shape[:-1])  # Reshape indices to match the original input shape without the last dimension.
+        embed_ind = embed_ind.view(*input.shape[:-1])  # Reshape indices to match the original input shape without the last dimension.
         quantize = self.embed_code(embed_ind)  # Fetch the embedding vectors corresponding to the indices.
 
         if self.training:
@@ -98,7 +95,8 @@ class LoraLayer(BaseTunerLayer):
 
     def __init__(self, base_layer: nn.Module, **kwargs) -> None:
         self.base_layer = base_layer
-        self.rank = kwargs.get("r", 4)
+        self.rank = kwargs.get("r")
+        self.codebook_size = kwargs.get("codebook_size")
         self.r = {}
         self.lora_alpha = {}
         self.scaling = {}
@@ -116,16 +114,16 @@ class LoraLayer(BaseTunerLayer):
         self._caches: dict[str, Any] = {}
         self.kwargs = kwargs
         self.decay = kwargs.get("decay", 0.99)   # Decay factor for updating the moving averages.
-        self.n_level = kwargs.get("n_level", 3)  # Number of hierarchical quantization levels
-
+        self.codebook_layers = kwargs.get("codebook_layers", 3)  # Number of hierarchical quantization levels
+    
         base_layer = self.get_base_layer()
         if isinstance(base_layer, nn.Linear):
             in_features, out_features = base_layer.in_features, base_layer.out_features
-            self.hr_vqlora_A = nn.ModuleList()
+            self.hr_vqlora = nn.ModuleList()  # Lists to hold quantization and normalization layers for each level
             self.hr_vqlora_B = nn.ModuleList()
-            for i in range(self.n_level):     # Initialize quantization layers, and batch norm layers
-                self.hr_vqlora_A.append(Quantize(self.rank*in_features, N_EMBED, self.decay))
-                self.hr_vqlora_B.append(Quantize(out_features*self.rank, N_EMBED, self.decay))
+            for i in range(self.codebook_layers):     # Initialize quantization layers, and batch norm layers
+                self.hr_vqlora_A.append(Quantize(self.rank*in_features, self.codebook_size, self.decay))
+                self.hr_vqlora_B.append(Quantize(out_features*self.rank, self.codebook_size, self.decay))
         else:
             raise ValueError(f"HR-VQLoRA only supports nn.Linear layers, found a {type(base_layer)}")
         # elif isinstance(base_layer, nn.Conv2d):
