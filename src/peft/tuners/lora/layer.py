@@ -58,7 +58,7 @@ class Quantize(nn.Module):
         )
         _, embed_ind = (-dist).max(1)  # Find the index of the nearest embedding vector for each input vector.
         embed_onehot = F.one_hot(embed_ind, self.n_embed).type(flatten.dtype)  # Convert indices to one-hot encoded format.
-        embed_ind = embed_ind.view(*input.shape[:-1])  # Reshape indices to match the original input shape without the last dimension.
+        # embed_ind = embed_ind.view(*input.shape[:-1])  # Reshape indices to match the original input shape without the last dimension.
         quantize = self.embed_code(embed_ind)  # Fetch the embedding vectors corresponding to the indices.
 
         if self.training:
