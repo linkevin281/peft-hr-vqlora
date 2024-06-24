@@ -297,3 +297,8 @@ class LoraConfig(PeftConfig):
         # convert loftq_config to dict
         if self.loftq_config and not isinstance(self.loftq_config, dict):
             self.loftq_config = vars(self.loftq_config)
+
+@dataclass
+class HRQLoraConfig(LoraConfig):
+    codebook_size: int = field(default=4, metadata={"help": "Codebook size for HRQLoRA"})
+    codebook_layers: int = field(default=3, metadata={"help": "Number of layers to quantize with HRQLoRA"})

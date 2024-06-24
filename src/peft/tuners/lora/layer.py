@@ -30,6 +30,9 @@ from .config import LoraConfig
 
 import traceback
 
+CODEBOOK_SIZE = 16
+CODEBOOK_LAYERS = 3
+
 class Quantize(nn.Module):
     def __init__(self, dim, n_embed, decay=0.99, eps=1e-5):
         super().__init__()
@@ -95,8 +98,8 @@ class LoraLayer(BaseTunerLayer):
 
     def __init__(self, base_layer: nn.Module, **kwargs) -> None:
         self.base_layer = base_layer
-        self.rank = kwargs.get("r")
-        self.codebook_size = kwargs.get("codebook_size")
+        self.rank = kwargs.get("lora_config").r
+        self.codebook_size = kwargs.get("lora_config").codebook_size
         self.r = {}
         self.lora_alpha = {}
         self.scaling = {}
@@ -114,12 +117,12 @@ class LoraLayer(BaseTunerLayer):
         self._caches: dict[str, Any] = {}
         self.kwargs = kwargs
         self.decay = kwargs.get("decay", 0.99)   # Decay factor for updating the moving averages.
-        self.codebook_layers = kwargs.get("codebook_layers", 3)  # Number of hierarchical quantization levels
+        self.codebook_layers = kwargs.get("lora_config").codebook_layers # Number of hierarchical quantization levels
     
         base_layer = self.get_base_layer()
         if isinstance(base_layer, nn.Linear):
             in_features, out_features = base_layer.in_features, base_layer.out_features
-            self.hr_vqlora = nn.ModuleList()  # Lists to hold quantization and normalization layers for each level
+            self.hr_vqlora_A = nn.ModuleList()  # Lists to hold quantization and normalization layers for each level
             self.hr_vqlora_B = nn.ModuleList()
             for i in range(self.codebook_layers):     # Initialize quantization layers, and batch norm layers
                 self.hr_vqlora_A.append(Quantize(self.rank*in_features, self.codebook_size, self.decay))
