@@ -511,9 +511,9 @@ if is_bnb_4bit_available():
                     if not self.use_dora[active_adapter]:
                         lora_output = (lora_B(lora_A(dropout(x))) * scaling)
                         lora_output = lora_output.clone()
-                        ## Remove in place update
-                        with torch.no_grad():
-                            lora_A.weight = nn.Parameter(lora_A.weight - quant_A)
+                        # ## Remove in place update
+                        # with torch.no_grad():
+                        #     lora_A.weight = nn.Parameter(quant_A)
                             # lora_B.weight = nn.Parameter(lora_B.weight - quant_B)
                     else:
                         output = self._apply_dora(x, lora_A, lora_B, scaling, active_adapter)
