@@ -34,10 +34,11 @@ CODEBOOK_SIZE = 16
 CODEBOOK_LAYERS = 3
 
 class Quantize(nn.Module):
-    def __init__(self, dim, n_embed, decay=0.99, eps=1e-5):
+    def __init__(self, dim, n_embed, decay=0.99, eps=1e-5, qw=10): 
         super().__init__()
         # Initialization of the Quantize module with specified dimensions and embedding settings.
 
+        self.qw = qw
         self.dim = dim  # Dimension of each embedding vector.
         self.n_embed = n_embed  # Number of embedding vectors in the codebook.
         self.decay = decay  # Decay factor for updating the moving averages.
@@ -80,8 +81,9 @@ class Quantize(nn.Module):
             )  # Normalize cluster sizes.
             embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)  # Normalize embeddings.
             self.embed.data.copy_(embed_normalized)  # Copy normalized embeddings back to the codebook.
+        norm = input.detach().pow(2).mean() + self.qw * quantize.detach().pow(2).mean()
 
-        diff = (quantize.detach() - input).pow(2).mean()  # Compute the quantization error as MSE.
+        diff = (quantize.detach() - input).pow(2).mean() / norm
         quantize = input + (quantize - input).detach()  # Return quantized values with gradient flow detached.
 
         return quantize, diff, embed_ind  # Return quantized output, quantization error, and indices.
