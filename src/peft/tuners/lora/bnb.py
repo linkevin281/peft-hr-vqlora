@@ -485,7 +485,8 @@ if is_bnb_4bit_available():
                     # quant_B, diffs_B, _, _ = self.get_hierarchical_vector(flat_lora_B, self.hr_vqlora_B)
                     
                     # Update loss
-                    self.hr_vqlora_loss = diffs_A
+                    self.hr_vqlora_loss = diffs_A.squeeze()
+                    # print(f'BNB          || Checking if loss instance var has grad {self.hr_vqlora_loss.requires_grad}') # it did have grad
                     
                     # defensive clone
                     quant_A = quant_A.clone()
@@ -531,10 +532,13 @@ if is_bnb_4bit_available():
             diffs = None
             quant_sum = None
             bottleneck = vector
+            # print(f'BNB_getHV          || input: {vector.shape}')
             
             # Process bottleneck through each quantization level
             for i, quantize in enumerate(codebook):
+                # print(f'BNB_getHV          || Quantizing level {i}')
                 quant, diff, id = quantize(bottleneck)
+                # print(f'BNB_getHV          || diff_mean {diff.mean()}')
                 diff = diff.unsqueeze(0)
 
                 # Accumulate quantization outputs and diffs
@@ -548,10 +552,15 @@ if is_bnb_4bit_available():
                     quant_sum += quant
                     quants = torch.cat((quants, quant.unsqueeze(1)), dim=1)
                     ids = torch.cat((ids, id.unsqueeze(1)), dim=1)
-                    
                 # Subtract quantized output from bottleneck to simulate residual learning
-                bottleneck = bottleneck - quant
-                
+                bottleneck -= quant.squeeze(0) # Transform quant from [1, input_size] to [input_size]
+            # print(f'                     || bottleneck: {bottleneck}')
+            # print(f'                     || quants: {quants}')
+            # print(f'                     || quant_sum: {quant_sum}')
+            # print(f'                     || diffs: {diffs}')
+            # print(f'                     || ids: {ids}')
+
+            # print(f'BNB         || Diffs {diffs}, type {type(diffs)}') ## wanted to check why diffs was a torch array
             return quant_sum, diffs, quants, ids
 
         def __repr__(self) -> str:
