@@ -28,13 +28,14 @@ from peft.utils.other import transpose
 
 from .config import LoraConfig
 
+import wandb
 import traceback
 
 CODEBOOK_SIZE = 16
 CODEBOOK_LAYERS = 3
 
 class Quantize(nn.Module):
-    def __init__(self, dim, n_embed, decay=0.99, eps=1e-5, qw=10): 
+    def __init__(self, dim, n_embed, decay=0.99, eps=1e-5, qw=10):
         super().__init__()
         # Initialization of the Quantize module with specified dimensions and embedding settings.
 
@@ -43,6 +44,9 @@ class Quantize(nn.Module):
         self.n_embed = n_embed  # Number of embedding vectors in the codebook.
         self.decay = decay  # Decay factor for updating the moving averages.
         self.eps = eps  # Small epsilon value to prevent division by zero.
+        self.counter = 0
+        codebook_usage = torch.zeros(self.n_embed,  dtype=torch.float32)  # Explicitly set dtype
+        self.register_buffer("codebook_usage", codebook_usage)  # Initialize and register the codebook usage buffer.
 
         embed = torch.randn(dim, n_embed)  # Initialize the embeddings randomly.
         self.register_buffer("embed", embed)  # Register 'embed' as a buffer for the embeddings/codebook.
@@ -80,10 +84,34 @@ class Quantize(nn.Module):
                 (self.cluster_size + self.eps) / (n + self.n_embed * self.eps) * n
             )  # Normalize cluster sizes.
             embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)  # Normalize embeddings.
-            self.embed.data.copy_(embed_normalized)  # Copy normalized embeddings back to the codebook.
-        norm = input.detach().pow(2).mean() + self.qw * quantize.detach().pow(2).mean()
+            self.embed.data.copy_(embed_normalized)  # Copy normalized embeddings back to the codebook.\
 
-        diff = (quantize.detach() - input).pow(2).mean() / norm
+            # self.codebook_usage.scatter_add_(0, embed_ind.flatten(), torch.ones_like(embed_ind.flatten()).to(torch.float32))
+        # if self.counter == 16:
+        #     wandb.log({"input_magnitude": torch.linalg.vector_norm(input, ord=2).item()})
+        #     wandb.log({"quantize_magnitude": torch.linalg.vector_norm(quantize, ord=2).item()})
+
+        #     wandb.log({"codebook_indices": wandb.Histogram(embed_ind.flatten().cpu().numpy())})
+        #     # wandb.log({"codebook_usage": wandb.Histogram(self.codebook_usage.numpy())})
+        #     self.counter = 0
+        # else:
+        #     self.counter += 1
+
+        ## check if
+        input_mse_og = input.detach().pow(2).mean()
+        input_mse = 0 if torch.isnan(input_mse_og) else input_mse_og
+        quantize_mse_og = quantize.detach().pow(2).mean() * self.qw
+        quantize_mse = 0 if torch.isnan(quantize_mse_og) else quantize_mse_og
+
+        norm = input_mse + quantize_mse
+
+        # if norm == 0:
+        #     norm = 1
+            # print(f'layer                 || Norm is 0 for some reason. Setting to 1. Input MSE: {input_mse_og}, Quantize MSE: {quantize_mse_og}')
+            # print(f'layer                 ||               Input: {input}, quantize: {quantize}')
+            # print(f'layer                 ||               Dist: {dist}, embed_ind: {embed_ind}, embed_onehot: {embed_onehot}')
+
+        diff = (quantize.detach() - input).pow(2).mean() + self.eps / norm + self.eps
         quantize = input + (quantize - input).detach()  # Return quantized values with gradient flow detached.
 
         return quantize, diff, embed_ind  # Return quantized output, quantization error, and indices.
@@ -120,7 +148,7 @@ class LoraLayer(BaseTunerLayer):
         self.kwargs = kwargs
         self.decay = kwargs.get("decay", 0.99)   # Decay factor for updating the moving averages.
         self.codebook_layers = kwargs.get("lora_config").codebook_layers # Number of hierarchical quantization levels
-    
+
         base_layer = self.get_base_layer()
         if isinstance(base_layer, nn.Linear):
             in_features, out_features = base_layer.in_features, base_layer.out_features
