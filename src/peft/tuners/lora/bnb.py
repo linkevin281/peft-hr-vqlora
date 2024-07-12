@@ -476,7 +476,7 @@ if is_bnb_4bit_available():
                     # defensive clone
                     lora_A_tensor = lora_A.weight.clone()
                     # lora_B_tensor = lora_B.weight.clone()
-                    
+
                     flat_lora_A = lora_A_tensor.flatten()
                     # flat_lora_B = lora_B_tensor.flatten()
                     
@@ -486,6 +486,8 @@ if is_bnb_4bit_available():
                     
                     # Update loss
                     self.hr_vqlora_loss = diffs_A
+                    # self.hr_vqlora_loss = diffs_A + diffs_B
+                    # self.hr_vqlora_loss = (diffs_A + diffs_B)/2
                     
                     # defensive clone
                     quant_A = quant_A.clone()
@@ -497,8 +499,14 @@ if is_bnb_4bit_available():
                     
                     ## perform in place update
                     with torch.no_grad():
-                        lora_A.weight = nn.Parameter(lora_A.weight + quant_A)
+                        # lora_A.weight = nn.Parameter(lora_A.weight + quant_A)
                         # lora_B.weight = nn.Parameter(lora_B.weight + quant_B)
+
+                        # Detached tensor and alter weights without graph
+                        lora_A_detached = lora_A.weight.detach()
+                        lora_A_detached = nn.Parameter(lora_A.weight + quant_A)
+                        # lora_B_detached = lora_B.weight.detach()
+                        # lora_B_detached = nn.Parameter(lora_B.weight + quant_B)
                                             
                     dropout = self.lora_dropout[active_adapter]
                     scaling = self.scaling[active_adapter]
@@ -511,10 +519,20 @@ if is_bnb_4bit_available():
                     if not self.use_dora[active_adapter]:
                         lora_output = (lora_B(lora_A(dropout(x))) * scaling)
                         lora_output = lora_output.clone()
-                        ## Remove in place update
-                        with torch.no_grad():
-                            lora_A.weight = nn.Parameter(lora_A.weight - quant_A)
-                            # lora_B.weight = nn.Parameter(lora_B.weight - quant_B)
+
+                        if self.training:
+                          ## Remove in place update
+                          with torch.no_grad():
+                              # lora_A.weight = nn.Parameter(lora_A.weight - quant_A)
+                              # lora_B.weight = nn.Parameter(lora_B.weight - quant_B)
+
+                              # Reset detached tensor weights without graph
+                              # if lora_A_detached:
+                              lora_A_detached = nn.Parameter(lora_A.weight - quant_A)
+                              # if lora_B_detached:
+                              #   lora_B_detached = nn.Parameter(lora_B.weight - quant_B)
+
+
                     else:
                         output = self._apply_dora(x, lora_A, lora_B, scaling, active_adapter)
                     if requires_conversion:

@@ -30,7 +30,7 @@ from .config import LoraConfig
 
 import traceback
 
-CODEBOOK_SIZE = 16
+CODEBOOK_SIZE = 64
 CODEBOOK_LAYERS = 3
 
 class Quantize(nn.Module):
