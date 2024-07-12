@@ -446,10 +446,10 @@ if is_bnb_4bit_available():
         def forward(self, x: torch.Tensor, *args, **kwargs) -> torch.Tensor:
             self._check_forward_args(x, *args, **kwargs)
             adapter_names = kwargs.pop("adapter_names", None)
-            
+
             if (len(x.shape) != 3):
                 x = x.unsqueeze(0)
-                
+
             if self.disable_adapters:
                 if self.merged:
                     self.unmerge()
@@ -476,31 +476,31 @@ if is_bnb_4bit_available():
                     # defensive clone
                     lora_A_tensor = lora_A.weight.clone()
                     # lora_B_tensor = lora_B.weight.clone()
-                    
+
                     flat_lora_A = lora_A_tensor.flatten()
                     # flat_lora_B = lora_B_tensor.flatten()
-                    
+
                     ## perform codebook
                     quant_A, diffs_A, _, _ = self.get_hierarchical_vector(flat_lora_A, self.hr_vqlora_A)
                     # quant_B, diffs_B, _, _ = self.get_hierarchical_vector(flat_lora_B, self.hr_vqlora_B)
-                    
+
                     # Update loss
                     self.hr_vqlora_loss = diffs_A.squeeze()
                     # print(f'BNB          || Checking if loss instance var has grad {self.hr_vqlora_loss.requires_grad}') # it did have grad
-                    
+
                     # defensive clone
                     quant_A = quant_A.clone()
                     # quant_B = quant_B.clone()
-                                        
+
                     ## unflatten
                     quant_A = quant_A.view_as(lora_A_tensor)
                     # quant_B = quant_B.view_as(lora_B_tensor)
-                    
-                    ## perform in place update
-                    with torch.no_grad():
-                        lora_A.weight = nn.Parameter(quant_A + lora_A.weight)
-                        # lora_B.weight = nn.Parameter(lora_B.weight + quant_B)
-                                            
+
+                    # ## perform in place update
+                    # with torch.no_grad():
+                    #     lora_A.weight = nn.Parameter(quant_A + lora_A.weight)
+                    #     # lora_B.weight = nn.Parameter(lora_B.weight + quant_B)
+
                     dropout = self.lora_dropout[active_adapter]
                     scaling = self.scaling[active_adapter]
 
@@ -509,13 +509,21 @@ if is_bnb_4bit_available():
                         expected_dtype = result.dtype
                         x = x.to(lora_A.weight.dtype)
 
+                    ## new calculation, matmul both up front
+                    dropped_x = dropout(x)
+                    quant_A_x = F.linear(dropped_x, quant_A)
+                    lora_A_x = lora_A(dropped_x)
+
                     if not self.use_dora[active_adapter]:
-                        lora_output = (lora_B(lora_A(dropout(x))) * scaling)
+                        lora_output = (lora_B(lora_A_x + quant_A_x) * scaling)
                         lora_output = lora_output.clone()
+                        print(lora_output.shape)
+                        exit()
+
                         # ## Remove in place update
                         # with torch.no_grad():
-                        #     lora_A.weight = nn.Parameter(quant_A)
-                            # lora_B.weight = nn.Parameter(lora_B.weight - quant_B)
+                        #     lora_A.weight = nn.Parameter(lora_A.weight - quant_A)
+                        #     # lora_B.weight = nn.Parameter(lora_B.weight - quant_B)
                     else:
                         output = self._apply_dora(x, lora_A, lora_B, scaling, active_adapter)
                     if requires_conversion:
@@ -524,7 +532,7 @@ if is_bnb_4bit_available():
                     result = result + lora_output
 
             return result
-    
+
         def get_hierarchical_vector(self, vector: torch.Tensor, codebook: torch.nn.ModuleList) -> torch.Tensor:
             # Initialize variables for accumulating quantization details
             ids = None
@@ -533,7 +541,7 @@ if is_bnb_4bit_available():
             quant_sum = None
             bottleneck = vector
             # print(f'BNB_getHV          || input: {vector.shape}')
-            
+
             # Process bottleneck through each quantization level
             for i, quantize in enumerate(codebook):
                 # print(f'BNB_getHV          || Quantizing level {i}')
@@ -588,4 +596,3 @@ if is_bnb_4bit_available():
             new_module = Linear4bit(target, adapter_name, **fourbit_kwargs)
 
         return new_module
-    
