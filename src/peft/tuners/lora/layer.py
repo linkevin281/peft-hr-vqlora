@@ -31,9 +31,6 @@ from .config import LoraConfig
 import wandb
 import traceback
 
-CODEBOOK_SIZE = 16
-CODEBOOK_LAYERS = 3
-
 class Quantize(nn.Module):
     def __init__(self, dim, n_embed, decay=0.99, eps=1e-5, qw=10):
         super().__init__()
