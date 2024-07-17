@@ -473,34 +473,6 @@ if is_bnb_4bit_available():
                     lora_A = self.lora_A[active_adapter]
                     lora_B = self.lora_B[active_adapter]
 
-                    # defensive clone
-                    lora_A_tensor = lora_A.weight.clone()
-                    # lora_B_tensor = lora_B.weight.clone()
-
-                    flat_lora_A = lora_A_tensor.flatten()
-                    # flat_lora_B = lora_B_tensor.flatten()
-
-                    ## perform codebook
-                    quant_A, diffs_A, _, _ = self.get_hierarchical_vector(flat_lora_A, self.hr_vqlora_A)
-                    # quant_B, diffs_B, _, _ = self.get_hierarchical_vector(flat_lora_B, self.hr_vqlora_B)
-
-                    # Update loss
-                    self.hr_vqlora_loss = diffs_A.squeeze()
-                    # print(f'BNB          || Checking if loss instance var has grad {self.hr_vqlora_loss.requires_grad}') # it did have grad
-
-                    # defensive clone
-                    quant_A = quant_A.clone()
-                    # quant_B = quant_B.clone()
-
-                    ## unflatten
-                    quant_A = quant_A.view_as(lora_A_tensor)
-                    # quant_B = quant_B.view_as(lora_B_tensor)
-
-                    # ## perform in place update
-                    # with torch.no_grad():
-                    #     lora_A.weight = nn.Parameter(quant_A + lora_A.weight)
-                    #     # lora_B.weight = nn.Parameter(lora_B.weight + quant_B)
-
                     dropout = self.lora_dropout[active_adapter]
                     scaling = self.scaling[active_adapter]
 
@@ -511,19 +483,15 @@ if is_bnb_4bit_available():
 
                     ## new calculation, matmul both up front
                     dropped_x = dropout(x)
-                    quant_A_x = F.linear(dropped_x, quant_A)
                     lora_A_x = lora_A(dropped_x)
+
+                    quant_A_x, diffs_A_x, _, _ = self.get_hierarchical_vector(lora_A_x, self.hr_vqlora_A)
+                    self.hr_vqlora_loss = diffs_A_x.squeeze()
 
                     if not self.use_dora[active_adapter]:
                         lora_output = (lora_B(lora_A_x + quant_A_x) * scaling)
                         lora_output = lora_output.clone()
-                        print(lora_output.shape)
-                        exit()
 
-                        # ## Remove in place update
-                        # with torch.no_grad():
-                        #     lora_A.weight = nn.Parameter(lora_A.weight - quant_A)
-                        #     # lora_B.weight = nn.Parameter(lora_B.weight - quant_B)
                     else:
                         output = self._apply_dora(x, lora_A, lora_B, scaling, active_adapter)
                     if requires_conversion:

@@ -152,8 +152,7 @@ class LoraLayer(BaseTunerLayer):
             self.hr_vqlora_A = nn.ModuleList()  # Lists to hold quantization and normalization layers for each level
             self.hr_vqlora_B = nn.ModuleList()
             for i in range(self.codebook_layers):     # Initialize quantization layers, and batch norm layers
-                self.hr_vqlora_A.append(Quantize(self.rank*in_features, self.codebook_size, self.decay))
-                self.hr_vqlora_B.append(Quantize(out_features*self.rank, self.codebook_size, self.decay))
+                self.hr_vqlora_A.append(Quantize(self.rank, self.codebook_size, self.decay))
         else:
             raise ValueError(f"HR-VQLoRA only supports nn.Linear layers, found a {type(base_layer)}")
         # elif isinstance(base_layer, nn.Conv2d):
