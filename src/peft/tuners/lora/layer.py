@@ -143,7 +143,7 @@ class LoraLayer(BaseTunerLayer):
         self.lora_magnitude_vector: Optional[torch.nn.ParameterDict] = None  # for DoRA
         self._caches: dict[str, Any] = {}
         self.kwargs = kwargs
-        self.decay = kwargs.get("decay", 0.99)   # Decay factor for updating the moving averages.
+        self.decay = kwargs.get("lora_config").quant_ema_decay # Decay factor for updating the moving averages.
         self.codebook_layers = kwargs.get("lora_config").codebook_layers # Number of hierarchical quantization levels
 
         base_layer = self.get_base_layer()
@@ -153,6 +153,8 @@ class LoraLayer(BaseTunerLayer):
             self.hr_vqlora_B = nn.ModuleList()
             for i in range(self.codebook_layers):     # Initialize quantization layers, and batch norm layers
                 self.hr_vqlora_A.append(Quantize(self.rank, self.codebook_size, self.decay))
+            print(f'layer                 || Initialized LoraLayer with quantize size self.rank: {self.rank} decay: {self.decay}')
+
         else:
             raise ValueError(f"HR-VQLoRA only supports nn.Linear layers, found a {type(base_layer)}")
         # elif isinstance(base_layer, nn.Conv2d):

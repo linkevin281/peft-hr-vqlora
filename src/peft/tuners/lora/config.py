@@ -302,3 +302,4 @@ class LoraConfig(PeftConfig):
 class HRQLoraConfig(LoraConfig):
     codebook_size: int = field(default=4, metadata={"help": "Codebook size for HRQLoRA"})
     codebook_layers: int = field(default=3, metadata={"help": "Number of layers to quantize with HRQLoRA"})
+    quant_ema_decay: float = field(default=0.99, metadata={"help": "Exponential moving average decay for quantization"})
