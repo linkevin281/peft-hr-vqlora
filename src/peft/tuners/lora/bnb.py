@@ -306,6 +306,7 @@ if is_bnb_4bit_available():
                 use_dora=use_dora,
             )
             self.hr_vqlora_loss = 0
+            self.start_using_codebook = False
 
         def merge(self, safe_merge: bool = False, adapter_names: Optional[list[str]] = None) -> None:
             """
@@ -485,8 +486,11 @@ if is_bnb_4bit_available():
                     dropped_x = dropout(x)
                     lora_A_x = lora_A(dropped_x)
 
-                    quant_A_x, diffs_A_x, _, _ = self.get_hierarchical_vector(lora_A_x, self.hr_vqlora_A)
-                    self.hr_vqlora_loss = diffs_A_x.squeeze()
+                    if self.start_using_codebook:
+                        quant_A_x, diffs_A_x, _, _ = self.get_hierarchical_vector(lora_A_x, self.hr_vqlora_A)
+                        self.hr_vqlora_loss = diffs_A_x.squeeze()
+                    else:
+                        quant_A_x = lora_A_x
 
                     if not self.use_dora[active_adapter]:
                         lora_output = (lora_B(lora_A_x + quant_A_x) * scaling)

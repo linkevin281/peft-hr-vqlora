@@ -42,6 +42,7 @@ class Quantize(nn.Module):
         self.decay = decay  # Decay factor for updating the moving averages.
         self.eps = eps  # Small epsilon value to prevent division by zero.
         self.counter = 0
+        self.start_using_codebook = False
         codebook_usage = torch.zeros(self.n_embed,  dtype=torch.float32)  # Explicitly set dtype
         self.register_buffer("codebook_usage", codebook_usage)  # Initialize and register the codebook usage buffer.
 
@@ -56,14 +57,14 @@ class Quantize(nn.Module):
         dist = (
             flatten.pow(2).sum(1, keepdim=True)  # Squared L2 norm of each input vector.
             - 2 * flatten @ self.embed  # Double the product of input vectors and codebook vectors.
-            + self.embed.pow(2).sum(0, keepdim=True)  # Squared L2 norm of each codebook vector.
+            + self.embed.pow(2).sum(0, keepdim=True)  # Squared L2 nor  m of each codebook vector.
         )
         _, embed_ind = (-dist).max(1)  # Find the index of the nearest embedding vector for each input vector.
         embed_onehot = F.one_hot(embed_ind, self.n_embed).type(flatten.dtype)  # Convert indices to one-hot encoded format.
         # embed_ind = embed_ind.view(*input.shape[:-1])  # Reshape indices to match the original input shape without the last dimension.
         quantize = self.embed_code(embed_ind)  # Fetch the embedding vectors corresponding to the indices.
 
-        if self.training:
+        if self.training and self.start_using_codebook:
             # Update codebook during training
             embed_onehot_sum = embed_onehot.sum(0)  # Sum the one-hot vectors across the batch for each embedding.
             embed_sum = flatten.transpose(0, 1) @ embed_onehot  # Weighted sum of input vectors for each embedding.
@@ -150,10 +151,8 @@ class LoraLayer(BaseTunerLayer):
         if isinstance(base_layer, nn.Linear):
             in_features, out_features = base_layer.in_features, base_layer.out_features
             self.hr_vqlora_A = nn.ModuleList()  # Lists to hold quantization and normalization layers for each level
-            self.hr_vqlora_B = nn.ModuleList()
             for i in range(self.codebook_layers):     # Initialize quantization layers, and batch norm layers
                 self.hr_vqlora_A.append(Quantize(self.rank, self.codebook_size, self.decay))
-            print(f'layer                 || Initialized LoraLayer with quantize size self.rank: {self.rank} decay: {self.decay}')
 
         else:
             raise ValueError(f"HR-VQLoRA only supports nn.Linear layers, found a {type(base_layer)}")
