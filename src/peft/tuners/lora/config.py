@@ -391,3 +391,9 @@ class LoraConfig(PeftConfig):
         if self._custom_modules is None:
             self._custom_modules = {}
         self._custom_modules.update(mapping)
+
+@dataclass
+class HRLoraConfig(LoraConfig):
+    quantize_layers: str = field(default="", metadata={"help": "A string of ranks for quantization layers"})
+    quant_ema_decay: float = field(default=0.99, metadata={"help": "Exponential moving average decay for quantization"})
+    codebook_start: int = field(default=0, metadata={"help": "Step index to start quantizing/training with HRQLoRA"})

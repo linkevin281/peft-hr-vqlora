@@ -50,6 +50,7 @@ from .peft_model import (
 from .tuners import (
     AdaptionPromptConfig,
     AdaptionPromptModel,
+    HRLoraConfig,
     LoraConfig,
     LoraRuntimeConfig,
     LoftQConfig,
