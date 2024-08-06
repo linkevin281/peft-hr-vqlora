@@ -45,6 +45,12 @@ class LoraLayer(BaseTunerLayer):
         self.lora_dropout = nn.ModuleDict({})
         self.lora_A = nn.ModuleDict({})
         self.lora_B = nn.ModuleDict({})
+        # For HRQLora
+        self.hr_lora_As = nn.ModuleList([]) # list of LoRA A matrices for HRQLora
+        self.hr_lora_Bs = nn.ModuleList([])
+        self.hr_lora_scalings = [] # a list of scalars
+        self.hr_lora_dropouts = nn.ModuleList([]) # list of LoRA dropout layers for HRQLora
+
         # For Embedding layer
         self.lora_embedding_A = nn.ParameterDict({})
         self.lora_embedding_B = nn.ParameterDict({})
@@ -100,7 +106,7 @@ class LoraLayer(BaseTunerLayer):
         self.out_features = out_features
 
     def update_layer(
-        self, adapter_name, r, lora_alpha, lora_dropout, init_lora_weights, use_rslora, use_dora: bool = False
+        self, adapter_name, r, hr_lora_r: list[int], lora_alpha, lora_dropout, init_lora_weights, use_rslora, use_dora: bool = False
     ):
         # This code works for linear layers, override for other layer types
         if r <= 0:
@@ -121,6 +127,20 @@ class LoraLayer(BaseTunerLayer):
             self.scaling[adapter_name] = lora_alpha / math.sqrt(r)
         else:
             self.scaling[adapter_name] = lora_alpha / r
+
+        # HRQLora Modification
+        for rank in hr_lora_r:
+            self.hr_lora_As.append(nn.Linear(self.in_features, rank, bias=False))
+            self.hr_lora_Bs.append(nn.Linear(rank, self.out_features, bias=False))
+            if use_rslora:
+                self.hr_lora_scalings.append(lora_alpha / math.sqrt(rank))
+            else:
+                self.hr_lora_scalings.append(lora_alpha / rank)
+
+            if lora_dropout > 0.0:
+                self.hr_lora_dropouts.append(nn.Dropout(p=lora_dropout))
+            else:
+                self.hr_lora_dropouts.append(nn.Identity())
 
         # for inits that require access to the base weight, use gather_param_ctx so that the weight is gathered when using DeepSpeed
         if isinstance(init_lora_weights, str) and init_lora_weights.startswith("pissa"):

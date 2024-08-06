@@ -301,9 +301,12 @@ if is_bnb_4bit_available():
             self.fan_in_fan_out = False
 
             self._active_adapter = adapter_name
+            hr_lora_r = kwargs.get("lora_config").hr_lora_r
+
             self.update_layer(
                 adapter_name,
                 r,
+                hr_lora_r=hr_lora_r,
                 lora_alpha=lora_alpha,
                 lora_dropout=lora_dropout,
                 init_lora_weights=init_lora_weights,
