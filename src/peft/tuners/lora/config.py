@@ -394,5 +394,5 @@ class LoraConfig(PeftConfig):
 
 @dataclass
 class HRLoraConfig(LoraConfig):
-    hr_lora_r: str = field(default="64", metadata={"help": "A string of ranks for layers"})
+    hr_lora_r: list[int] = field(default_factory=list, metadata={"help": "A array of ranks ints for layers"})
     quant_ema_decay: float = field(default=0.99, metadata={"help": "Exponential moving average decay for quantization"})
