@@ -455,54 +455,39 @@ if is_bnb_4bit_available():
             return result
 
         def forward(self, x: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+
+            if len(self.active_adapters) > 1:
+                raise NotImplementedError("Multiple adapters are not supported for HRQLoRA layers")
+
             self._check_forward_args(x, *args, **kwargs)
-            adapter_names = kwargs.pop("adapter_names", None)
 
-            if self.disable_adapters:
-                if self.merged:
-                    self.unmerge()
-                result = self.base_layer(x, *args, **kwargs)
-            elif adapter_names is not None:
-                result = self._mixed_batch_forward(x, *args, adapter_names=adapter_names, **kwargs)
-            elif self.merged:
-                result = self.base_layer(x, *args, **kwargs)
-            else:
-                result = self.base_layer(x, *args, **kwargs)
-                # As per Tim Dettmers, for 4bit, we need to defensively clone here.
-                # The reason is that in some cases, an error can occur that backprop
-                # does not work on a manipulated view. This issue may be solved with
-                # newer PyTorch versions but this would need extensive testing to be
-                # sure.
-                result = result.clone()
+            result = self.base_layer(x, *args, **kwargs)
+            # As per Tim Dettmers, for 4bit, we need to defensively clone here.
+            # The reason is that in some cases, an error can occur that backprop
+            # does not work on a manipulated view. This issue may be solved with
+            # newer PyTorch versions but this would need extensive testing to be
+            # sure.
+            result = result.clone()
 
-                for active_adapter in self.active_adapters:
-                    if active_adapter not in self.lora_A.keys():
-                        continue
-                    lora_A = self.lora_A[active_adapter]
-                    lora_B = self.lora_B[active_adapter]
-                    dropout = self.lora_dropout[active_adapter]
-                    scaling = self.scaling[active_adapter]
+            for i in range(len(self.hr_lora_As)):
+                lora_A = self.hr_lora_As[i]
+                lora_B = self.hr_lora_Bs[i]
+                scaling = self.hr_lora_scalings[i]
+                dropout = self.hr_lora_dropouts[i]
 
-                    requires_conversion = not torch.is_autocast_enabled()
-                    if requires_conversion:
-                        expected_dtype = result.dtype
-                        x = x.to(lora_A.weight.dtype)
+                requires_conversion = not torch.is_autocast_enabled()
+                if requires_conversion:
+                    expected_dtype = result.dtype
+                    compute_dtype = lora_A.weight.dtype
+                    if x.dtype != compute_dtype:
+                        x = x.to(compute_dtype)
 
-                    if not self.use_dora[active_adapter]:
-                        output = lora_B(lora_A(dropout(x))) * scaling
-                    else:
-                        x = dropout(x)
-                        output = self.lora_magnitude_vector[active_adapter](
-                            x,
-                            lora_A=lora_A,
-                            lora_B=lora_B,
-                            scaling=scaling,
-                            base_layer=self.get_base_layer(),
-                        )
-                    if requires_conversion:
-                        output = output.to(expected_dtype)
+                output = lora_B(lora_A(dropout(x))) * scaling
 
-                    result = result + output
+                if requires_conversion:
+                    output = output.to(expected_dtype)
+
+                result = result + output
 
             return result
 
