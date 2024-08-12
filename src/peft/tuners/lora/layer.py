@@ -50,6 +50,7 @@ class LoraLayer(BaseTunerLayer):
         self.hr_lora_Bs = nn.ModuleList([])
         self.hr_lora_scalings = [] # a list of scalars
         self.hr_lora_dropouts = nn.ModuleList([]) # list of LoRA dropout layers for HRQLora
+        self.hr_lora_r = []
 
         # For Embedding layer
         self.lora_embedding_A = nn.ParameterDict({})
@@ -129,6 +130,8 @@ class LoraLayer(BaseTunerLayer):
             self.scaling[adapter_name] = lora_alpha / r
 
         # HRQLora Modification
+        self.hr_lora_r = hr_lora_r
+
         for rank in hr_lora_r:
             self.hr_lora_As.append(nn.Linear(self.in_features, rank, bias=False))
             self.hr_lora_Bs.append(nn.Linear(rank, self.out_features, bias=False))
@@ -184,6 +187,17 @@ class LoraLayer(BaseTunerLayer):
             # https://github.com/microsoft/LoRA/blob/4c0333854cb905966f8cc4e9a74068c1e507c7b7/loralib/layers.py#L59-L60
             nn.init.zeros_(self.lora_embedding_A[adapter_name])
             nn.init.normal_(self.lora_embedding_B[adapter_name])
+
+        if init_lora_weights is True:
+            for i in range(len(self.hr_lora_As)):
+                nn.init.kaiming_uniform_(self.hr_lora_As[i].weight, a=math.sqrt(5))
+        elif init_lora_weights.lower() == "gaussian":
+            for i in range(len(self.hr_lora_As)):
+                nn.init.normal_(self.hr_lora_As[i].weight, std=1 / self.hr_lora_r[i])
+        else:
+            raise ValueError(f"Unknown initialization {init_lora_weights=}")
+        for i in range(len(self.hr_lora_Bs)):
+            nn.init.zeros_(self.hr_lora_Bs[i].weight)
 
     def olora_init(self, adapter_name):
         dtype = self.get_base_layer().weight.dtype
