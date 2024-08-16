@@ -303,6 +303,9 @@ if is_bnb_4bit_available():
             self._active_adapter = adapter_name
             hr_lora_r = kwargs.get("lora_config").hr_lora_r
 
+            self.original_layer = None
+            self.layer_loss = torch.tensor(0.0)# tosomething
+
             self.update_layer(
                 adapter_name,
                 r,
@@ -331,6 +334,7 @@ if is_bnb_4bit_available():
             if not adapter_names:
                 # no adapter to merge
                 return
+            print("linear4bit ||            merge")
 
             for active_adapter in adapter_names:
                 if active_adapter not in self.lora_A.keys():
@@ -505,6 +509,8 @@ if is_bnb_4bit_available():
 
         loaded_in_4bit = kwargs.get("loaded_in_4bit", False)
         if loaded_in_4bit and is_bnb_4bit_available() and isinstance(target_base_layer, bnb.nn.Linear4bit):
+            # print("linear4bit ||            dispatch_bnb_4bit")
+
             fourbit_kwargs = kwargs.copy()
             fourbit_kwargs.update(
                 {
