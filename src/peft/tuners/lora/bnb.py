@@ -468,6 +468,14 @@ if is_bnb_4bit_available():
             # newer PyTorch versions but this would need extensive testing to be
             # sure.
             result = result.clone()
+            requires_conversion = not torch.is_autocast_enabled()
+            if requires_conversion:
+                expected_dtype = result.dtype
+                compute_dtype = lora_A.weight.dtype
+                if x.dtype != compute_dtype:
+                    x = x.to(compute_dtype)
+
+            running_result = None
 
             for i in range(len(self.hr_lora_As)):
                 lora_A = self.hr_lora_As[i]
@@ -475,19 +483,17 @@ if is_bnb_4bit_available():
                 scaling = self.hr_lora_scalings[i]
                 dropout = self.hr_lora_dropouts[i]
 
-                requires_conversion = not torch.is_autocast_enabled()
-                if requires_conversion:
-                    expected_dtype = result.dtype
-                    compute_dtype = lora_A.weight.dtype
-                    if x.dtype != compute_dtype:
-                        x = x.to(compute_dtype)
-
                 output = lora_B(lora_A(dropout(x))) * scaling
 
-                if requires_conversion:
-                    output = output.to(expected_dtype)
+                if running_result is None:
+                    running_result = output
+                else:
+                    running_result += output
 
-                result = result + output
+            if requires_conversion:
+                running_result = running_result.to(expected_dtype)
+
+            result += running_result
 
             return result
 
